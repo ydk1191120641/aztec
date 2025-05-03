@@ -194,6 +194,10 @@ services:
       - BLOB_SINK_URL=\${BLOB_SINK_URL:-}
     entrypoint: >
       sh -c 'node --no-warnings /usr/src/yarn-project/aztec/dest/bin/index.js start --network alpha-testnet --node --archiver --sequencer $BLOB_FLAG'
+    ports:
+      - 40400:40400/tcp
+      - 40400:40400/udp
+      - 8080:8080  
     volumes:
       - $DATA_DIR:/data
 EOF
