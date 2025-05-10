@@ -96,8 +96,8 @@ install_nodejs() {
   source ~/.bashrc
   nvm install 24.0.0
   nvm use 24.0.0
-  update_apt
-  install_package nodejs
+  # update_apt
+  # install_package nodejs
 }
 
 # 安装 Aztec CLI
