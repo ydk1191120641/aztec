@@ -181,9 +181,10 @@ EOF
   cat > docker-compose.yml <<EOF
 version: "3.8"
 services:
-  node:
+  root-node-1:
     image: aztecprotocol/aztec:0.85.0-alpha-testnet.5
     network_mode: host
+    container_name: root-node-1
     environment:
       - ETHEREUM_HOSTS=\${ETHEREUM_HOSTS}
       - L1_CONSENSUS_HOST_URLS=\${L1_CONSENSUS_HOST_URLS}
@@ -193,7 +194,7 @@ services:
       - LOG_LEVEL=\${LOG_LEVEL}
       - BLOB_SINK_URL=\${BLOB_SINK_URL:-}
     entrypoint: >
-      sh -c 'node --no-warnings /usr/src/yarn-project/aztec/dest/bin/index.js start --network alpha-testnet --node --archiver --sequencer $BLOB_FLAG'
+      sh -c "node --no-warnings /usr/src/yarn-project/aztec/dest/bin/index.js start --network alpha-testnet --node --archiver --sequencer $BLOB_FLAG"
     volumes:
       - $DATA_DIR:/data
 EOF
@@ -202,15 +203,21 @@ EOF
   mkdir -p "$DATA_DIR"
 
   # 启动节点
-  print_info "启动 Aztec 全节点 (docker compose up -d)..."
+  print_info "启动 Aztec 全节点 (尝试 docker compose up -d)..."
   if ! docker compose up -d; then
-    echo "启动 Aztec 节点失败，请检查 docker logs -f aztec_node_1。"
+  print_info "docker compose 失败，尝试 docker-compose up -d..."
+  if ! command -v docker-compose >/dev/null 2>&1; then
+    echo "docker-compose 未安装。请安装 docker-compose 或确保 Docker Compose V2 可用。"
     exit 1
   fi
-
+  if ! docker-compose up -d; then
+    echo "启动 Aztec 节点失败，请检查 docker logs -f root-node-1。"
+    exit 1
+  fi
+  fi
   # 完成
   print_info "安装和启动完成！"
-  print_info "  - 查看日志：docker logs -f aztec_node_1"
+  print_info "  - 查看日志：docker logs -f root-node-1"
   print_info "  - 数据目录：$DATA_DIR"
 }
 
@@ -219,33 +226,52 @@ get_block_and_proof() {
   if ! check_command jq; then
     print_info "未找到 jq，正在安装..."
     update_apt
-    install_package jq
+    if ! install_package jq; then
+      print_info "错误：无法安装 jq，请检查网络或 apt 源。"
+      echo "按任意键返回主菜单..."
+      read -n 1
+      return
+    fi
   fi
 
   if [ -f "docker-compose.yml" ]; then
+    # 检查容器是否运行
+    if ! docker ps -q -f name=root-node-1 | grep -q .; then
+      print_info "错误：容器 root-node-1 未运行，请先启动节点。"
+      echo "按任意键返回主菜单..."
+      read -n 1
+      return
+    fi
+
     print_info "获取当前区块高度..."
     BLOCK_NUMBER=$(curl -s -X POST -H 'Content-Type: application/json' \
       -d '{"jsonrpc":"2.0","method":"node_getL2Tips","params":[],"id":67}' \
-      http://localhost:8080 | jq -r ".result.proven.number")
-    
+      http://localhost:8080 | jq -r ".result.proven.number" || echo "")
+
     if [ -z "$BLOCK_NUMBER" ] || [ "$BLOCK_NUMBER" = "null" ]; then
-      print_info "错误：无法获取区块高度，请确保节点正在运行并检查日志。"
+      print_info "错误：无法获取区块高度(请等待半个小时后再查询），请确保节点正在运行并检查日志（docker logs -f root-node-1）。"
+      echo "按任意键返回主菜单..."
+      read -n 1
+      return
+    fi
+
+    print_info "当前区块高度：$BLOCK_NUMBER"
+    print_info "获取同步证明..."
+    PROOF=$(curl -s -X POST -H 'Content-Type: application/json' \
+      -d "$(jq -n --arg bn "$BLOCK_NUMBER" '{"jsonrpc":"2.0","method":"node_getArchiveSiblingPath","params":[$bn,$bn],"id":67}')" \
+      http://localhost:8080 | jq -r ".result" || echo "")
+
+    if [ -z "$PROOF" ] || [ "$PROOF" = "null" ]; then
+      print_info "错误：无法获取同步证明，请确保节点正在运行并检查日志（docker logs -f root-node-1）。"
     else
-      print_info "当前区块高度：$BLOCK_NUMBER"
-      print_info "获取同步证明..."
-      PROOF=$(curl -s -X POST -H 'Content-Type: application/json' \
-        -d "{\"jsonrpc\":\"2.0\",\"method\":\"node_getArchiveSiblingPath\",\"params\":[\"$BLOCK_NUMBER\",\"$BLOCK_NUMBER\"],\"id\":67}" \
-        http://localhost:8080 | jq -r ".result")
-      
-      if [ -z "$PROOF" ] || [ "$PROOF" = "null" ]; then
-        print_info "错误：无法获取同步证明，请确保节点正在运行并检查日志。"
-      else
-        print_info "同步一次证明：$PROOF"
-      fi
+      print_info "同步一次证明：$PROOF"
     fi
   else
     print_info "错误：未找到 docker-compose.yml 文件，请先安装并启动节点。"
   fi
+
+  echo "按任意键返回主菜单..."
+  read -n 1
 }
 
 # 主菜单函数
@@ -259,7 +285,7 @@ main_menu() {
     echo "请选择要执行的操作:"
     echo "1. 安装并启动 Aztec 节点"
     echo "2. 查看节点日志"
-    echo "3. 获取区块高度和同步证明"
+    echo "3. 获取区块高度和同步证明（请等待半个小时后再查询）"
     echo "4. 退出"
     read -p "请输入选项 (1-4): " choice
 
@@ -272,7 +298,7 @@ main_menu() {
       2)
         if [ -f "docker-compose.yml" ]; then
           print_info "查看节点日志..."
-          docker logs --tail 200 aztec_node_1
+          docker logs -f root-node-1
         else
           print_info "错误：未找到 docker-compose.yml 文件，请先安装并启动节点。"
         fi
@@ -281,8 +307,6 @@ main_menu() {
         ;;
       3)
         get_block_and_proof
-        echo "按任意键返回主菜单..."
-        read -n 1
         ;;
       4)
         print_info "退出脚本..."
