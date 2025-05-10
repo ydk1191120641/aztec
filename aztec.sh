@@ -92,7 +92,10 @@ install_nodejs() {
     return
   fi
   print_info "未找到 Node.js，正在安装最新版本..."
-  curl -fsSL https://deb.nodesource.com/setup_current.x | bash -
+  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash
+  source ~/.bashrc
+  nvm install 24.0.0
+  nvm use 24.0.0
   update_apt
   install_package nodejs
 }
