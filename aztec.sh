@@ -92,12 +92,11 @@ install_nodejs() {
     return
   fi
   print_info "未找到 Node.js，正在安装最新版本..."
-  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.5/install.sh | bash
-  source ~/.bashrc
-  nvm install 24.0.0
-  nvm use 24.0.0
-  # update_apt
-  # install_package nodejs
+  wget https://nodejs.org/dist/v24.0.0/node-v24.0.0-linux-x64.tar.xz
+  sudo tar -xvf node-v24.0.0-linux-x64.tar.xz -C /usr/local --strip-components=1
+  node -v
+  npm -v
+  sudo rm -f node-v24.0.0-linux-x64.tar.xz
 }
 
 # 安装 Aztec CLI
